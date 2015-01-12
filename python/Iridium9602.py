@@ -7,7 +7,8 @@ import time
 import random
 import sys
 from smtp_stuff import sendMail 
-from imap_stuff import checkMessages
+from imap_stuff import check_new_message, checkMessages
+import thread
 
 
 AVERAGE_SBDIX_DELAY = 1     #TODO: implement randomness, average is ~30s
@@ -65,6 +66,30 @@ email_enabled = False
 ip_enabled = False
 http_post_enabled = False
 
+write_lock = thread.allocate_lock()
+
+def serial_write(data):
+    global write_lock
+
+    if ser != 0:
+        write_lock.acquire()
+        ser.write(data)
+        write_lock.release()
+
+def ring_alerter():
+    global incoming_server
+    global user
+    global password
+    global imei
+    global mt_buffer
+
+    while 1:
+        new_msg = check_new_message(incoming_server, user, password, imei)
+
+        if new_msg:
+            serial_write("\r\n+SBDRING\r\n")
+
+        time.sleep(1)
 
 def send_mo_email():
     global lat
@@ -179,7 +204,7 @@ def sbdix():
     return_string = "\r\n+SBDIX: %d, %d, %d, %d, %d, %d\r\n" % (rpt,momsn,received_msg,mtmsn,received_msg_size,unread_msgs)
     #+SBDIX:<MO status>,<MOMSN>,<MT status>,<MTMSN>,<MT length>,<MT queued>
     print "Sent:",return_string
-    ser.write(return_string)
+    serial_write(return_string)
     send_ok()
         
     mo_set = False
@@ -188,7 +213,7 @@ def sbdix():
 def sbd_reg():
     global registered
     
-    success = (bool(random.getrandbits(1)))
+    success = True
     if registered == REG_STATUS_REGISTERED:
         print 'Already registered'
         error_text = ',0'
@@ -196,15 +221,16 @@ def sbd_reg():
         if success:
             registered = REG_STATUS_REGISTERED
             error_text = ',0'
+            thread.start_new_thread(ring_alerter, ())
         else:
             registered = REG_STATUS_NOT_REGISTER
             error_text = ',17' #TODO: add more sophisticated failures
     
-    ser.write("\nSBDREG:%d%s\r\n" % (registered,error_text))
+    serial_write("\nSBDREG:%d%s\r\n" % (registered,error_text))
     send_ok()
     
 def check_reg_status():
-    ser.write("\n+SBDREG:%d\r\n" % (registered))
+    serial_write("\n+SBDREG:%d\r\n" % (registered))
     send_ok()
     
 def sbd_det():
@@ -214,7 +240,7 @@ def sbd_det():
     
 def read_text():
     global mt_buffer
-    ser.write("\n+SBDRT:\r\n%s\r\n" % (mt_buffer))
+    serial_write("\n+SBDRT:\r\n%s\r\n" % (mt_buffer))
     send_ok()
 
 def read_binary():
@@ -226,12 +252,12 @@ def read_binary():
     checksum_lsb =  ((mt_buffer_sum & (2**16-1)) / (1) ) & 255
     print "Device is reading binary from MT buffer: ",mt_buffer
     #array.array
-    #ser.write(len_msb)
-    #ser.write(len_lsb)
-    #ser.write(mt_buffer)
-    #ser.write(checksum_msb)
-    #ser.write(checksum_lsb)
-    ser.write("%s%s%s%s%s" % (chr(len_msb), chr(len_lsb), mt_buffer,chr(checksum_msb),chr(checksum_lsb)) )
+    #serial_write(len_msb)
+    #serial_write(len_lsb)
+    #serial_write(mt_buffer)
+    #serial_write(checksum_msb)
+    #serial_write(checksum_lsb)
+    serial_write("%s%s%s%s%s" % (chr(len_msb), chr(len_lsb), mt_buffer,chr(checksum_msb),chr(checksum_lsb)) )
     print "\r\n%s%s%s%s%s" % (chr(len_msb), chr(len_lsb), mt_buffer,chr(checksum_msb),chr(checksum_lsb))
     print checksum_msb, checksum_lsb, len_msb, len_lsb, mt_buffer
     send_ok()
@@ -239,16 +265,16 @@ def read_binary():
 
 def send_ok():
     global ser
-    ser.write('\r\nOK\r\n')
+    serial_write('\r\nOK\r\n')
     print "Sending OK"
     
 def send_error():
     global ser
-    ser.write('\r\nERROR\r\n')
+    serial_write('\r\nERROR\r\n')
 
 def send_ready():
     global ser
-    ser.write('\r\nREADY\r\n')
+    serial_write('\r\nREADY\r\n')
 
 def do_ok():
     print 'Received blank command'
@@ -263,19 +289,19 @@ def clear_buffers(buffer):
     if buffer == 0:
         mo_buffer = ''
         mo_set = False
-        ser.write('\r\n0\r\n')
+        serial_write('\r\n0\r\n')
         send_ok()
     elif buffer == 1:
         mt_buffer = ''
         mt_set = False
-        ser.write('\r\n0\r\n')
+        serial_write('\r\n0\r\n')
         send_ok()
     elif buffer == 2:
         mt_buffer = ''
         mo_buffer = ''
         mo_set = False
         mt_set = False
-        ser.write('\r\n0\r\n')
+        serial_write('\r\n0\r\n')
         send_ok()
     else:
         send_error()
@@ -283,7 +309,7 @@ def clear_buffers(buffer):
 
 def clear_momsn():
     momsn = 0
-    ser.write('\r\n0\r\n')
+    serial_write('\r\n0\r\n')
 
 def get_sbd_status():
     global mt_set
@@ -309,7 +335,7 @@ def get_sbd_status():
         
     return_string = "\nSBDS:%d,%d,%d,%d\r\n" % (mo_flag, momsn, mt_flag, mtmsn)
 
-    ser.write(return_string)
+    serial_write(return_string)
     send_ok()
 
 def copy_mo_to_mt():
@@ -319,19 +345,19 @@ def copy_mo_to_mt():
     mt_buffer = mo_buffer
     
     return_string = "\nSBDTC: Outbound SBD Copied to Inbound SBD: size = %d\r\n" % (len(mo_buffer))
-    ser.write(return_string)
+    serial_write(return_string)
     
     send_ok()
     
 def which_gateway():
     return_string = "\rSBDGW:EMSS\r\n"
 
-    ser.write(return_string)
+    serial_write(return_string)
     send_ok()
 
 def get_system_time():
     return_string = "\r\n---MSSTM: 01002000\r\n"
-    ser.write(return_string)
+    serial_write(return_string)
     send_ok()
     print 'We havent actually implemented MSSTM this yet.'
     
@@ -354,40 +380,40 @@ def set_ring_indicator(cmd,start_index):
 def get_signal_strength():
     return_string = "\r\n+CSQ:%d\r\n" % 5#(random.randint(0,5))
     time.sleep(AVERAGE_SBDIX_DELAY)
-    ser.write(return_string)
+    serial_write(return_string)
     send_ok()
 
 def get_valid_rssi():
     return_string = "\n+CSQ:(0-5)\r\n"
-    ser.write(return_string)
+    serial_write(return_string)
     send_ok()
 
 def get_lock_status():
     global locked
     
     return_string = "\n+CULK:%d\r\n" % ( locked ) 
-    ser.write(return_string)
+    serial_write(return_string)
     send_ok()    
     
 def get_manufacturer():
     return_string = "\n+Iridium\r\n" 
-    ser.write(return_string)
+    serial_write(return_string)
     send_ok() 
     
 def get_model():
     return_string = "\nIRIDIUM 9600 Family SBD Transceiver\r\n"
-    ser.write(return_string)
+    serial_write(return_string)
     send_ok() 
     
 def get_gsn():
     return_string = "\n300234060604220\r\n"
-    ser.write(return_string)
+    serial_write(return_string)
     send_ok() 
     
 def get_gmr():
     return_string = "\n3Call Processor Version: Long string\r\n"
     print 'Warning: get_gmr function not fully implemented'
-    ser.write(return_string)
+    serial_write(return_string)
     send_ok() 
     
 def write_binary_start(cmd,start_index):
@@ -398,7 +424,7 @@ def write_binary_start(cmd,start_index):
     try:
         binary_rx_incoming_bytes = int(text)
         if (binary_rx_incoming_bytes > 340):
-            ser.write('\r\r\n3\r\n')
+            serial_write('\r\r\n3\r\n')
             send_ok()
             binary_rx_incoming_bytes = 0
         else:
@@ -525,7 +551,7 @@ def main():
         new_char = ser.read()
         #print new_char
         if echo and not binary_rx:
-            ser.write(new_char)
+            serial_write(new_char)
             
         if not binary_rx:
             rx_buffer = rx_buffer + new_char
@@ -554,17 +580,17 @@ def main():
                 #check the checksum
                 if (checksum_first * 256 + checksum_second) == (binary_checksum & (2**16-1)):
                     print "Good binary checksum"
-                    ser.write('\r\n0\r\n')
+                    serial_write('\r\n0\r\n')
                     send_ok()
                     mo_buffer = rx_buffer
                     rx_buffer = ''
                     mo_set = True
                 else:
                     print "Bad binary checksum"
-                    ser.write('\r\n2\r\n')
+                    serial_write('\r\n2\r\n')
                     send_ok()
                     rx_buffer = ''
-                    ser.write('\n')            
+                    serial_write('\n')            
                 binary_checksum = 0
                 binary_rx = False
             else:

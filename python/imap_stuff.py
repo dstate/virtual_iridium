@@ -6,6 +6,16 @@ import imaplib
 import email
 import imaplib
 
+def check_new_message(incoming_server, user, password, imei):
+    #TODO: check only mails which have given imei
+
+    obj = imaplib.IMAP4_SSL(incoming_server, '993')
+    obj.login(user, password)
+    obj.select('Inbox')
+    type, data = obj.search(None, 'UnSeen')
+    string = data[0]
+    return (len(string) > 0)
+
 def checkMessages(incoming_server, user, password,imsi):
     has_data = False
     obj = imaplib.IMAP4_SSL(incoming_server, '993')
