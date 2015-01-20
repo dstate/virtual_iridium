@@ -29,7 +29,9 @@ REG_STATUS_DENIED = 3
 LOCKED = 1
 NOT_LOCKED = 0
 
-echo = True
+RING_ALERT_WAIT = 20
+
+echo = False
 binary_rx = False
 binary_rx_incoming_bytes = 0
 
@@ -68,6 +70,9 @@ http_post_enabled = False
 
 write_lock = thread.allocate_lock()
 
+ring_alert_sent_number = 0
+last_ring_alert_time = 0;
+
 def serial_write(data):
     global write_lock
 
@@ -81,13 +86,19 @@ def ring_alerter():
     global user
     global password
     global imei
-    global mt_buffer
+    global ring_alert_sent
 
     while 1:
         new_msg = check_new_message(incoming_server, user, password, imei)
 
         if new_msg:
-            serial_write("\r\n+SBDRING\r\n")
+            if ring_alert_sent_number < 2 and time.time() - last_ring_alert_time >= RING_ALERT_WAIT:
+                serial_write("\r\n+SBDRING\r\n")
+                ring_alert_sent_number += 1
+                last_ring_alert_time = time.time()
+        else:
+            ring_alert_sent_number = 0
+            last_ring_alert_time = 0;
 
         time.sleep(1)
 
@@ -476,7 +487,7 @@ def parse_cmd(cmd):
     
 
 def open_port(dev,baudrate):
-    ser = serial.Serial(dev, 19200, timeout=1000, parity=serial.PARITY_NONE)
+    ser = serial.Serial(dev, 115200, timeout=1000, parity=serial.PARITY_NONE)
     return ser
     
 def main():
