@@ -87,8 +87,9 @@ def ring_alerter():
     global password
     global imei
     global ring_alert_sent
+    global registered
 
-    while 1:
+    while registered == REG_STATUS_REGISTERED:
         new_msg = check_new_message(incoming_server, user, password, imei)
 
         if new_msg:
@@ -98,9 +99,12 @@ def ring_alerter():
                 last_ring_alert_time = time.time()
         else:
             ring_alert_sent_number = 0
-            last_ring_alert_time = 0;
+            last_ring_alert_time = 0
 
         time.sleep(1)
+
+    ring_alert_sent_number = 0
+    last_ring_alert_time = 0
 
 def send_mo_email():
     global lat
@@ -245,6 +249,8 @@ def check_reg_status():
     send_ok()
     
 def sbd_det():
+    global registered
+
     print 'Detached'
     registered = REG_STATUS_DETACHED
     serial_write("\n+SBDDET:0,0\r\n")
