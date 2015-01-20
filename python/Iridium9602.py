@@ -246,7 +246,8 @@ def check_reg_status():
     
 def sbd_det():
     print 'Detached'
-    registered = True
+    registered = REG_STATUS_DETACHED
+    serial_write("\n+SBDDET:0,0\r\n")
     send_ok()
     
 def read_text():
