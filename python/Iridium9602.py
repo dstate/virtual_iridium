@@ -31,7 +31,7 @@ NOT_LOCKED = 0
 
 RING_ALERT_WAIT = 20
 
-echo = False
+echo = True
 binary_rx = False
 binary_rx_incoming_bytes = 0
 
@@ -494,7 +494,7 @@ def parse_cmd(cmd):
     
 
 def open_port(dev,baudrate):
-    ser = serial.Serial(dev, 115200, timeout=1000, parity=serial.PARITY_NONE)
+    ser = serial.Serial(dev, 19200, timeout=1000, parity=serial.PARITY_NONE)
     return ser
     
 def main():
